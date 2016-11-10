@@ -11,17 +11,18 @@ import random
 from pwd import getpwnam
 
 STATE_PREFIX="TTS_"
-OVERRIDE_USER_NAME={{plugin_ssh_override_user}}
+OVERRIDE_USER_NAME=False
 FULL_ACCESS=False
 
 
 def list_params():
-    RequestParams = [{'name':'public key', 'description':'the public key to upload to the service',
-                     'type':'textarea', 'mandatory':False}]
+    RequestParams = [[{'key':'pub_key', 'name':'public key',
+                       'description':'the public key to upload to the service',
+                       'type':'textarea', 'mandatory':True}], []]
     ConfParams = [{'name':'full_access', 'type':'boolean', 'default': False},
                   {'name':'state_prefix', 'type':'string', 'default':'TTS_'},
                   {'name':'override_user_name', 'type':'boolean',
-                   'default':{{plugin_ssh_override_user}} }]
+                   'default':False }]
     return json.dumps({'conf_params': ConfParams, 'request_params': RequestParams})
 
 def create_ssh(UserName, Uid, Gid, HomeDir, Params):
@@ -220,35 +221,17 @@ def main():
             #get the action to perform
             Action = JObject['action']
 
-            if Action == "get_params":
+            if Action == "parameter":
                 print list_params()
 
             else:
                 State = JObject['cred_state']
                 Params = JObject['params']
-                # ConfParams = JObject['conf_params']
+                ConfParams = JObject['conf_params']
 
-                # STATE_PREFIX=ConfParams['state_prefix']
-                # OVERRIDE_USER_NAME=ConfParmas['override_user_name']
-                # FULL_ACCESS=ConfParmas['full_access']
-                #UserInfo
-                # information coming from the openid provider
-                # which information are available depends on the
-                # OpenId Connect provider
-                #
-                # iss - the issuer
-                # sub - the subject
-                # name - the full name of the user
-                # email - the email of the user
-                #
-                # IAM also provides
-                # groups - a list of groups each consisting of
-                #    id - uuid of the group
-                #    name - readable name of the group
-                # organisation_name - name of the organisation, indigo_dc
-                # preferred_username - if possible create accounts with this name
-                # Name = Oidc['name']
-                # OidcUserName = Oidc['preferred_username']
+                STATE_PREFIX=ConfParams['state_prefix']
+                OVERRIDE_USER_NAME=ConfParmas['override_user_name']
+                FULL_ACCESS=ConfParmas['full_access']
 
                 UserInfo = JObject['user_info']
                 UserId = UserInfo['userid']
