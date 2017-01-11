@@ -1,5 +1,5 @@
-# tts_plugin_ssh
-a simple ssh plugin for TTS
+# watts_plugin_ssh
+a simple ssh plugin for WaTTS
 
 *This is still in development and not yet meant for production*
 
