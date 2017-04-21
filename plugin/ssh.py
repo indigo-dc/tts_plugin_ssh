@@ -230,8 +230,8 @@ def main():
                 ConfParams = JObject['conf_params']
 
                 STATE_PREFIX=ConfParams['state_prefix']
-                OVERRIDE_USER_NAME=ConfParmas['override_user_name']
-                FULL_ACCESS=ConfParmas['full_access']
+                OVERRIDE_USER_NAME=ConfParams['override_user_name']
+                FULL_ACCESS=ConfParams['full_access']
 
                 UserInfo = JObject['user_info']
                 UserId = UserInfo['userid']
