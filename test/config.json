@@ -6,59 +6,11 @@
 			{
 				"action": "request",
 				"additional_logins": [],
-				"conf_params": {},
-				"cred_state": "undefined",
-				"params": {},
-				"user_info": {
-					"family_name": "Musterfrau",
-					"gender": "male",
-					"given_name": "Max",
-					"iss": "https://issuer.com",
-					"name": "Max Musterfrau",
-					"scope": "openid",
-					"scope_list": [
-						"openid"
-					],
-					"sub": "0815"
+				"conf_params": {
+					"full_access": false,
+					"override_user_name": false,
+					"state_prefix": "TTS_"
 				},
-				"watts_version": "v1.0.0+build.1378.ref447f3a3"
-			},
-			"expected_output": {
-				"result": "ok"
-			}
-		},
-		{
-			"input":
-			{
-				"action": "request",
-				"additional_logins": [],
-				"conf_params": {},
-				"cred_state": "undefined",
-				"params": {},
-				"user_info": {
-					"family_name": "Musterfrau",
-					"gender": "male",
-					"given_name": "Max",
-					"iss": "https://issuer.com",
-					"name": "Max Musterfrau",
-					"scope": "openid",
-					"scope_list": [
-						"openid"
-					],
-					"sub": "0815"
-				},
-				"watts_version": "v1.0.0+build.1378.ref447f3a3"
-			},
-			"expected_output": {
-				"result": "ok"
-			}
-		},
-		{
-			"input":
-			{
-				"action": "request",
-				"additional_logins": [],
-				"conf_params": {},
 				"cred_state": "undefined",
 				"params": {},
 				"user_info": {
@@ -81,4 +33,5 @@
 		}
 	]
 }
+
 
