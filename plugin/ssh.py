@@ -8,27 +8,31 @@ import os
 import traceback
 import string
 import random
-from pwd import getpwnam
 from subprocess import check_output as qx
 
-ALLOWED_LOA=["https://aai.egi.eu/LoA#Substantial"]
-CREATE_USER="/usr/bin/sudo /home/tts/bin/create_user.py"
+ALLOWED_LOA = ["https://aai.egi.eu/LoA#Substantial"]
+CREATE_USER = "/usr/bin/sudo /home/tts/bin/create_user.py"
+
 
 def list_params():
-    RequestParams = [[{'key':'pub_key', 'name':'public key',
-                       'description':'the public key to upload to the service',
-                       'type':'textarea', 'mandatory':True}], []]
-    ConfParams = [{'name':'state_prefix', 'type':'string', 'default':'TTS_'},
-                  {'name':'host_list', 'type':'string', 'default':''},
-                  {'name':'check_loa', 'type':'boolean', 'default':'true'},
-                  {'name':'work_dir', 'type':'string', 'default':'/home/tts/.config/tts/ssh/'}
-                 ]
+    RequestParams = [[{'key': 'pub_key', 'name': 'public key',
+                       'description': 'the public key to upload to the service',
+                       'type': 'textarea', 'mandatory': True}], []]
+    ConfParams = [
+        {'name': 'state_prefix', 'type': 'string', 'default': 'TTS_'},
+        {'name': 'host_list', 'type': 'string', 'default': ''},
+        {'name': 'check_loa', 'type': 'boolean', 'default': 'true'},
+        {'name': 'work_dir', 'type': 'string',
+         'default': '/home/tts/.config/tts/ssh/'}]
     Version = "0.1.0"
-    return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':Version})
+    return json.dumps({'result': 'ok',
+                       'conf_params': ConfParams,
+                       'request_params': RequestParams,
+                       'version': Version})
 
 
 def create_ssh(UserId, Params, Hosts, Prefix, WorkDir):
-    if Params.has_key('pub_key'):
+    if 'pub_key' in Params:
         return insert_ssh_key(UserId, Params['pub_key'], Hosts, Prefix)
     else:
         return create_ssh_for(UserId, Hosts, Prefix, WorkDir)
@@ -40,69 +44,89 @@ def revoke_ssh(UserId, State, Hosts):
 
 def create_ssh_for(UserId, Hosts, Prefix, BaseWorkDir):
     Password = id_generator()
-    State = "%s%s"%(Prefix,id_generator(32))
+    State = "%s%s" % (Prefix, id_generator(32))
     # maybe change this to random/temp file
     WorkDir = os.path.join(BaseWorkDir, UserId)
-    OutputFile = os.path.join(WorkDir,"tts_ssh_key")
-    OutputPubFile = os.path.join(WorkDir,"tts_ssh_key.pub")
-    EnsureWorkDir = "mkdir -p %s > /dev/null"%(WorkDir)
-    RmDir = "rm -rf %s > /dev/null"%WorkDir
+    OutputFile = os.path.join(WorkDir, "tts_ssh_key")
+    OutputPubFile = os.path.join(WorkDir, "tts_ssh_key.pub")
+    EnsureWorkDir = "mkdir -p %s > /dev/null" % (WorkDir)
+    RmDir = "rm -rf %s > /dev/null" % WorkDir
     # DelKey = "srm -f %s %s.pub > /dev/null"%(OutputFile,OutputFile)
     # DelKey = "shred -f %s %s.pub > /dev/null"%(OutputFile,OutputFile)
     os.system(RmDir)
     os.system(EnsureWorkDir)
-    Cmd = "ssh-keygen -N %s -C %s -f %s > /dev/null"%(Password,State,OutputFile)
+    Cmd = "ssh-keygen -N %s -C %s -f %s > /dev/null" % (
+        Password, State, OutputFile)
     Res = os.system(Cmd)
     if Res != 0:
-        LogMsg = "the key generation '%s' failed with %d"%(Cmd, Res)
+        LogMsg = "the key generation '%s' failed with %d" % (Cmd, Res)
         UserMsg = "sorry, the key generation failed"
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
     PubKey = validate_and_update_key(get_file_content(OutputPubFile), State)
     PrivKey = get_file_content(OutputFile)
-    if PubKey == None:
-        LogMsg = "the public key generated '%s' is not valid"%InKey
+    if PubKey is None:
+        LogMsg = "the public key generated '%s' is not valid" % PubKey
         UserMsg = "sorry, the public key generation failed"
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
-
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
     os.system(RmDir)
 
-    PubKeyObj = {'name':'Public Key', 'type':'textfile', 'value':PubKey, 'rows':4}
-    PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':30, 'cols':64}
-    PasswdObj = {'name':'Passphrase (for Private Key)', 'type':'text', 'value':Password}
+    PubKeyObj = {
+        'name': 'Public Key',
+        'type': 'textfile',
+        'value': PubKey,
+     'rows': 4}
+    PrivKeyObj = {
+        'name': 'Private Key',
+        'type': 'textfile',
+        'value': PrivKey,
+        'rows': 30,
+     'cols': 64}
+    PasswdObj = {
+        'name': 'Passphrase (for Private Key)',
+        'type': 'text',
+     'value': Password}
     Credential = [PrivKeyObj, PasswdObj, PubKeyObj]
 
     HostResult = deploy_key(UserId, PubKey, State, Hosts)
     if HostResult['result'] == 'ok':
         HostCredential = HostResult['output']
         Credential.extend(HostCredential)
-        return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
+        return json.dumps(
+            {'result': 'ok', 'credential': Credential, 'state': State})
     else:
         Log = HostResult['log']
         UserMsg = "the deployment failed, the error has been logged, please contact the administrator"
-        LogMsg = "key deployment did fail on at least one host: '%s'"%Log
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
-    return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
+        LogMsg = "key deployment did fail on at least one host: '%s'" % Log
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
+    return json.dumps(
+        {'result': 'ok', 'credential': Credential, 'state': State})
 
 
 def insert_ssh_key(UserId, InKey, Hosts, Prefix):
-    State = "%s%s"%(Prefix,id_generator(32))
+    State = "%s%s" % (Prefix, id_generator(32))
     PubKey = validate_and_update_key(InKey, State)
-    if PubKey == None:
-        LogMsg = "the key given by the user '%s' is not valid"%InKey
+    if PubKey is None:
+        LogMsg = "the key given by the user '%s' is not valid" % InKey
         UserMsg = "sorry, the public key was not valid"
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
     Result = deploy_key(UserId, PubKey, State, Hosts)
     if Result['result'] == 'ok':
         Credential = Result['output']
-        return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
+        return json.dumps(
+            {'result': 'ok', 'credential': Credential, 'state': State})
     else:
         Log = Result['log']
         UserMsg = "the deployment failed, the error has been logged, please contact the administrator"
-        LogMsg = "key deployment did fail on at least one host: '%s'"%Log
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+        LogMsg = "key deployment did fail on at least one host: '%s'" % Log
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
 
 def validate_and_update_key(Key, State):
@@ -117,64 +141,69 @@ def validate_and_update_key(Key, State):
         return None
     if len(PubKey) < 4:
         return None
-    return "%s %s %s"%(KeyType, PubKey, State)
+    return "%s %s %s" % (KeyType, PubKey, State)
 
 
 def deploy_key(UserId, Key, State, Hosts):
-    Json = json.dumps({'action':'request', 'watts_userid':UserId, 'cred_state':'undefined', 'params':{'state':State, 'pub_key':Key}})
+    Json = json.dumps(
+        {'action': 'request', 'watts_userid': UserId, 'cred_state': 'undefined',
+         'params': {'state': State, 'pub_key': Key}})
     Parameter = base64.urlsafe_b64encode(Json)
     Result = execute_on_hosts(Parameter, Hosts)
     Output = []
     Log = ""
     for Json in Result:
-        if Json.has_key('result') and Json['result'] == 'ok' :
+        if 'result' in Json and Json['result'] == 'ok':
             Host = Json['host']
             Credential = Json['credential']
-            UserName = None
-            for Cred in Credential :
+            for Cred in Credential:
                 if Cred['name'] == 'Username':
                     Username = Cred['value']
-            Output.append( {'name':"user @ %s"%Host, 'type':'text', 'value':Username })
+            Output.append({'name': "user @ %s" % Host,
+                           'type': 'text', 'value': Username})
         else:
-            Log = "%s%s: %s; "%(Log, Json['host'], Json['log_msg'])
+            Log = "%s%s: %s; " % (Log, Json['host'], Json['log_msg'])
 
     if len(Output) == len(Result):
-        return { 'result':'ok', 'output':Output }
+        return {'result': 'ok', 'output': Output}
     else:
-        return { 'result':'error', 'log':Log }
+        return {'result': 'error', 'log': Log}
+
 
 def delete_ssh_for(UserId, State, Hosts):
-    Json = json.dumps({'action':'revoke', 'watts_userid':UserId, 'cred_state':State, 'params':''})
+    Json = json.dumps({'action': 'revoke',
+                       'watts_userid': UserId,
+                       'cred_state': State,
+                       'params': ''})
     Parameter = base64.urlsafe_b64encode(Json)
     Result = execute_on_hosts(Parameter, Hosts)
     OkCount = 0
     Log = ""
-    for Json in Result :
-        if Json.has_key('result') and Json['result'] == 'ok' :
+    for Json in Result:
+        if 'result' in Json and Json['result'] == 'ok':
             OkCount = OkCount + 1
         else:
-            Log = "%s%s: %s; "%(Log, Json['host'], Json['log_msg'])
-    if OkCount == len(Result) :
-        return json.dumps({'result':'ok'})
+            Log = "%s%s: %s; " % (Log, Json['host'], Json['log_msg'])
+    if OkCount == len(Result):
+        return json.dumps({'result': 'ok'})
     else:
         UserMsg = "the revocation failed and has been logged, please contact the administrator"
-        LogMsg = "key revocation did fail on at least one host: '%s'"%Log
-        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+        LogMsg = "key revocation did fail on at least one host: '%s'" % Log
+        return json.dumps(
+            {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
+
 
 def execute_on_hosts(Parameter, Hosts):
     # loop through all server and collect the output
-    Cmd = "sudo /home/tts/.config/tts/ssh_vm.py %s"%Parameter
+    Cmd = "sudo /home/tts/.config/tts/ssh_vm.py %s" % Parameter
     Result = []
     for Host in Hosts:
-        UserHost = "tts@%s"%Host
+        UserHost = "tts@%s" % Host
         Output = qx(["ssh", UserHost, Cmd])
         Json = json.loads(Output)
         Json['host'] = Host
         Result.append(Json)
     return Result
-
-
-
 
 
 def get_file_content(File):
@@ -184,25 +213,32 @@ def get_file_content(File):
     return Content
 
 
-def id_generator(size=16, chars=string.ascii_uppercase + string.digits+string.ascii_lowercase):
+def id_generator(
+        size=16,
+        chars=string.ascii_uppercase +
+        string.digits +
+        string.ascii_lowercase):
     return ''.join(random.choice(chars) for _ in range(size))
+
 
 def is_allowed_loa(Loa):
     if Loa in ALLOWED_LOA:
         return True
     return False
 
+
 def ensure_group_list(MaybeGroups):
-    if type(MaybeGroups) is str:
-        Groups=parse_group_string(MaybeGroups)
+    if isinstance(MaybeGroups, str):
+        Groups = parse_group_string(MaybeGroups)
         return Groups
-    if type(MaybeGroups) is unicode:
-        Groups=parse_group_string(MaybeGroups)
+    if isinstance(MaybeGroups, unicode):
+        Groups = parse_group_string(MaybeGroups)
         return Groups
-    if type(MaybeGroups) is list:
+    if isinstance(MaybeGroups, list):
         return MaybeGroups
     else:
         return []
+
 
 def parse_group_string(GroupString):
     RawGroups = GroupString.split(',')
@@ -211,11 +247,13 @@ def parse_group_string(GroupString):
         Groups.append(Group.strip())
     return Groups
 
+
 def get_loa(Oidc):
     Loa = ""
     if 'acr' in Oidc:
         Loa = Oidc['acr']
     return Loa
+
 
 def get_groups(Oidc):
     Groups = []
@@ -227,12 +265,11 @@ def get_groups(Oidc):
 def main():
     UserMsg = "Internal error, please contact the administrator"
     try:
-        Cmd = None
         if len(sys.argv) == 2:
-            Json = str(sys.argv[1])+ '=' * (4 - len(sys.argv[1]) % 4)
+            Json = str(sys.argv[1]) + '=' * (4 - len(sys.argv[1]) % 4)
             JObject = json.loads(str(base64.urlsafe_b64decode(Json)))
 
-            #general information
+            # general information
             Action = JObject['action']
             if Action == "parameter":
                 print list_params()
@@ -243,41 +280,42 @@ def main():
                 ConfParams = JObject['conf_params']
                 UserId = JObject['watts_userid']
 
-                Prefix=ConfParams['state_prefix']
-                WorkDir=ConfParams['work_dir']
-                Hosts=ConfParams['host_list'].split()
-                CheckLoa=ConfParams['check_loa']
+                Prefix = ConfParams['state_prefix']
+                WorkDir = ConfParams['work_dir']
+                Hosts = ConfParams['host_list'].split()
+                CheckLoa = ConfParams['check_loa']
 
                 UserInfo = JObject['user_info']
                 Subject = UserInfo['sub']
                 Issuer = UserInfo['iss']
-                Groups = get_groups(UserInfo)
                 Loa = get_loa(UserInfo)
 
-
-                if len(Hosts) == 0 :
+                if len(Hosts) == 0:
                     LogMsg = "the plugin has no hosts configured, use the 'host_list' parameter"
-                    print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+                    print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
                 elif Action == "request":
                     if is_allowed_loa(Loa) or not CheckLoa:
                         print create_ssh(UserId, Params, Hosts, Prefix, WorkDir)
                     else:
-                        LogMsg = "user %s - %s with loa %s is not allowed"%(Issuer, Subject, Loa)
+                        LogMsg = "user %s - %s with loa %s is not allowed" % (
+                                                                              Issuer,
+                                                                              Subject,
+                                                                              Loa)
                         UserMsg = "sorry, your level of assurance (loa) is too low"
-                        print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+                        print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
                 elif Action == "revoke":
                     print revoke_ssh(UserId, State, Hosts)
                 else:
-                    LogMsg = "the plugin was run with an unknown action '%s'"%Action
-                    print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+                    LogMsg = "the plugin was run with an unknown action '%s'" % Action
+                    print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
         else:
             LogMsg = "the plugin was run without an action"
-            print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
-    except Exception, E:
+            print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
+    except Exception as E:
         TraceBack = traceback.format_exc(),
-        LogMsg = "the plugin failed with %s - %s"%(str(E), TraceBack)
-        print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+        LogMsg = "the plugin failed with %s - %s" % (str(E), TraceBack)
+        print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
         pass
 
 if __name__ == "__main__":
