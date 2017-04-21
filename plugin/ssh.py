@@ -9,92 +9,106 @@ import traceback
 import string
 import random
 from pwd import getpwnam
+from subprocess import check_output as qx
 
-STATE_PREFIX="TTS_"
-OVERRIDE_USER_NAME=False
-FULL_ACCESS=False
-
+ALLOWED_LOA=["https://aai.egi.eu/LoA#Substantial"]
+CREATE_USER="/usr/bin/sudo /home/tts/bin/create_user.py"
 
 def list_params():
     RequestParams = [[{'key':'pub_key', 'name':'public key',
                        'description':'the public key to upload to the service',
                        'type':'textarea', 'mandatory':True}], []]
-    ConfParams = [{'name':'full_access', 'type':'boolean', 'default': False},
-                  {'name':'state_prefix', 'type':'string', 'default':'TTS_'},
-                  {'name':'override_user_name', 'type':'boolean',
-                   'default':False }]
-    return json.dumps({'conf_params': ConfParams, 'request_params': RequestParams})
+    ConfParams = [{'name':'state_prefix', 'type':'string', 'default':'TTS_'},
+                  {'name':'host_list', 'type':'string', 'default':''},
+                  {'name':'check_loa', 'type':'boolean', 'default':'true'},
+                  {'name':'work_dir', 'type':'string', 'default':'/home/tts/.config/tts/ssh/'}
+                 ]
+    Version = "0.1.0"
+    return json.dumps({'result':'ok', 'conf_params': ConfParams, 'request_params': RequestParams, 'version':Version})
 
-def create_ssh(UserName, Uid, Gid, HomeDir, Params):
-    UserExists = does_user_exist(UserName,Uid,Gid,HomeDir)
-    if UserExists:
-        if Params.has_key('public key'):
-            return insert_ssh_key(UserName, HomeDir, Params['public key'])
-        else:
-            return create_ssh_for(UserName,HomeDir)
+
+def create_ssh(UserId, Params, Hosts, Prefix, WorkDir):
+    if Params.has_key('pub_key'):
+        return insert_ssh_key(UserId, Params['pub_key'], Hosts, Prefix)
     else:
-        # dear admin, this is not the problem of tts
-        return json.dumps({'error':'no_user'})
+        return create_ssh_for(UserId, Hosts, Prefix, WorkDir)
 
 
-def revoke_ssh(UserName, Uid, Gid, HomeDir, State):
-    UserExists = does_user_exist(UserName,Uid,Gid,HomeDir)
-    if UserExists:
-        return delete_ssh_for(UserName,HomeDir,State)
-    else:
-        # dear admin, this is not the problem of tts
-        return json.dumps({'error':'no_user'})
+def revoke_ssh(UserId, State, Hosts):
+    return delete_ssh_for(UserId, State, Hosts)
 
 
-def create_ssh_for(UserName,HomeDir):
-    SshDir = create_ssh_dir(UserName,HomeDir)
-    if SshDir == None:
-        return json.dumps({'error':'ssh_dir_missing'})
+def create_ssh_for(UserId, Hosts, Prefix, BaseWorkDir):
     Password = id_generator()
-    State = "%s%s"%(STATE_PREFIX,id_generator(32))
+    State = "%s%s"%(Prefix,id_generator(32))
     # maybe change this to random/temp file
-    OutputFile = os.path.join(SshDir,"tts_ssh_key")
-    OutputPubFile = os.path.join(SshDir,"tts_ssh_key.pub")
-    AuthorizedFile = os.path.join(SshDir,"authorized_keys")
-    DelKey = "rm -f %s %s.pub > /dev/null"%(OutputFile,OutputFile)
+    WorkDir = os.path.join(BaseWorkDir, UserId)
+    OutputFile = os.path.join(WorkDir,"tts_ssh_key")
+    OutputPubFile = os.path.join(WorkDir,"tts_ssh_key.pub")
+    EnsureWorkDir = "mkdir -p %s > /dev/null"%(WorkDir)
+    RmDir = "rm -rf %s > /dev/null"%WorkDir
     # DelKey = "srm -f %s %s.pub > /dev/null"%(OutputFile,OutputFile)
     # DelKey = "shred -f %s %s.pub > /dev/null"%(OutputFile,OutputFile)
-    os.system(DelKey)
+    os.system(RmDir)
+    os.system(EnsureWorkDir)
     Cmd = "ssh-keygen -N %s -C %s -f %s > /dev/null"%(Password,State,OutputFile)
-    if os.system(Cmd) != 0:
-        return json.dumps({'error':'keygen_failed'})
+    Res = os.system(Cmd)
+    if Res != 0:
+        LogMsg = "the key generation '%s' failed with %d"%(Cmd, Res)
+        UserMsg = "sorry, the key generation failed"
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
 
     PubKey = validate_and_update_key(get_file_content(OutputPubFile), State)
     PrivKey = get_file_content(OutputFile)
     if PubKey == None:
-        return json.dumps({'error':'bad_key'})
+        LogMsg = "the public key generated '%s' is not valid"%InKey
+        UserMsg = "sorry, the public key generation failed"
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
 
-    do_insert_key(SshDir, PubKey)
-    os.system(DelKey)
-    UserNameObj = {'name':'Username', 'type':'text', 'value':UserName}
+
+    os.system(RmDir)
+
+    PubKeyObj = {'name':'Public Key', 'type':'textfile', 'value':PubKey, 'rows':4}
     PrivKeyObj = {'name':'Private Key', 'type':'textfile', 'value':PrivKey, 'rows':30, 'cols':64}
     PasswdObj = {'name':'Passphrase (for Private Key)', 'type':'text', 'value':Password}
-    Credential = [UserNameObj, PrivKeyObj, PasswdObj]
-    return json.dumps({'credential':Credential, 'state':State})
+    Credential = [PrivKeyObj, PasswdObj, PubKeyObj]
 
-def insert_ssh_key(UserName, HomeDir, InKey):
-    SshDir = create_ssh_dir(UserName,HomeDir)
-    if SshDir == None:
-        return json.dumps({'error':'ssh_dir_missing'})
-    State = "%s%s"%(STATE_PREFIX,id_generator(32))
-    Key = validate_and_update_key(InKey, State)
-    if Key == None:
-        return json.dumps({'error':'bad_key'})
+    HostResult = deploy_key(UserId, PubKey, State, Hosts)
+    if HostResult['result'] == 'ok':
+        HostCredential = HostResult['output']
+        Credential.extend(HostCredential)
+        return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
+    else:
+        Log = HostResult['log']
+        UserMsg = "the deployment failed, the error has been logged, please contact the administrator"
+        LogMsg = "key deployment did fail on at least one host: '%s'"%Log
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+    return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
 
-    do_insert_key(SshDir, Key)
-    UserNameObj = {'name':'Username', 'type':'text', 'value':UserName}
-    Credential = [UserNameObj]
-    return json.dumps({'credential':Credential, 'state':State})
+
+def insert_ssh_key(UserId, InKey, Hosts, Prefix):
+    State = "%s%s"%(Prefix,id_generator(32))
+    PubKey = validate_and_update_key(InKey, State)
+    if PubKey == None:
+        LogMsg = "the key given by the user '%s' is not valid"%InKey
+        UserMsg = "sorry, the public key was not valid"
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+
+    Result = deploy_key(UserId, PubKey, State, Hosts)
+    if Result['result'] == 'ok':
+        Credential = Result['output']
+        return json.dumps({'result':'ok', 'credential':Credential, 'state':State})
+    else:
+        Log = Result['log']
+        UserMsg = "the deployment failed, the error has been logged, please contact the administrator"
+        LogMsg = "key deployment did fail on at least one host: '%s'"%Log
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+
 
 def validate_and_update_key(Key, State):
     if len(Key) < 3:
         return None
-    KeyParts = Key.split(" ")
+    KeyParts = Key.split(" ", 2)
     if len(KeyParts) != 3:
         return None
     KeyType = KeyParts[0]
@@ -106,35 +120,58 @@ def validate_and_update_key(Key, State):
     return "%s %s %s"%(KeyType, PubKey, State)
 
 
-def do_insert_key(SshDir, Key):
-    AuthorizedFile = os.path.join(SshDir,"authorized_keys")
-    if FULL_ACCESS:
-        Prepend='no-port-forwarding,no-X11-forwarding,no-agent-forwarding '
+def deploy_key(UserId, Key, State, Hosts):
+    Json = json.dumps({'action':'request', 'watts_userid':UserId, 'cred_state':'undefined', 'params':{'state':State, 'pub_key':Key}})
+    Parameter = base64.urlsafe_b64encode(Json)
+    Result = execute_on_hosts(Parameter, Hosts)
+    Output = []
+    Log = ""
+    for Json in Result:
+        if Json.has_key('result') and Json['result'] == 'ok' :
+            Host = Json['host']
+            Credential = Json['credential']
+            UserName = None
+            for Cred in Credential :
+                if Cred['name'] == 'Username':
+                    Username = Cred['value']
+            Output.append( {'name':"user @ %s"%Host, 'type':'text', 'value':Username })
+        else:
+            Log = "%s%s: %s; "%(Log, Json['host'], Json['log_msg'])
+
+    if len(Output) == len(Result):
+        return { 'result':'ok', 'output':Output }
     else:
-        #make this a really locked down ssh access
-        Prepend='command="cat {{platform_etc_dir}}/services/ssh.msg",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty '
-    Cmd = "echo '%s %s' >> %s"%(Prepend,Key,AuthorizedFile)
-    os.system(Cmd)
+        return { 'result':'error', 'log':Log }
 
+def delete_ssh_for(UserId, State, Hosts):
+    Json = json.dumps({'action':'revoke', 'watts_userid':UserId, 'cred_state':State, 'params':''})
+    Parameter = base64.urlsafe_b64encode(Json)
+    Result = execute_on_hosts(Parameter, Hosts)
+    OkCount = 0
+    Log = ""
+    for Json in Result :
+        if Json.has_key('result') and Json['result'] == 'ok' :
+            OkCount = OkCount + 1
+        else:
+            Log = "%s%s: %s; "%(Log, Json['host'], Json['log_msg'])
+    if OkCount == len(Result) :
+        return json.dumps({'result':'ok'})
+    else:
+        UserMsg = "the revocation failed and has been logged, please contact the administrator"
+        LogMsg = "key revocation did fail on at least one host: '%s'"%Log
+        return json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
 
-
-def delete_ssh_for(UserName, HomeDir, State):
-    SshDir = create_ssh_dir(UserName,HomeDir)
-    if SshDir == None:
-        return json.dumps({'error':'ssh_dir_missing'})
-    AuthorizedFile = os.path.join(SshDir,"authorized_keys")
-    BackupFile = "%s%s"%(AuthorizedFile,".backup")
-    TempFile = "%s%s"%(AuthorizedFile,".tts")
-    Copy = "cp %s %s"%(AuthorizedFile,BackupFile)
-    Remove = "grep -v %s %s > %s"%(State,BackupFile,AuthorizedFile)
-    Delete = "rm -f %s"%BackupFile
-    Res1 = os.system(Copy)
-    Res2 = os.system(Remove)
-    Res3 = os.system(Delete)
-    if ( (Res1 != 0) or (Res2 != 0 and Res2 != 256) or (Res3 != 0) ):
-        return json.dumps({'error':'delete_failed', "details":{"copy":Res1, "remove":Res2, "delete":Res3 }})
-
-    return json.dumps({'result':'ok'})
+def execute_on_hosts(Parameter, Hosts):
+    # loop through all server and collect the output
+    Cmd = "sudo /home/tts/.config/tts/ssh_vm.py %s"%Parameter
+    Result = []
+    for Host in Hosts:
+        UserHost = "tts@%s"%Host
+        Output = qx(["ssh", UserHost, Cmd])
+        Json = json.loads(Output)
+        Json['host'] = Host
+        Result.append(Json)
+    return Result
 
 
 
@@ -147,80 +184,56 @@ def get_file_content(File):
     return Content
 
 
-
-def create_ssh_dir(UserName,HomeDir):
-    SshDir=os.path.join(HomeDir,".ssh/")
-    AuthorizedFile=os.path.join(SshDir,"authorized_keys")
-    if not os.path.exists(SshDir):
-        CreateSshDir = "mkdir -p %s"%SshDir
-        if os.system(CreateSshDir) != 0:
-            return None
-    if not os.path.exists(AuthorizedFile):
-        CreateFile = "touch %s"%AuthorizedFile
-        if os.system(CreateFile) != 0:
-            return None
-
-    # always enfore mod and ownership
-    ChOwnSshDir = "chown %s %s"%(UserName,SshDir)
-    ChModSshDir = "chmod 700 %s"%SshDir
-    ChOwnAuthFile = "chown %s %s"%(UserName,AuthorizedFile)
-    ChModAuthFile = "chmod 600 %s"%AuthorizedFile
-    if os.system(ChOwnSshDir) != 0:
-        return None
-    if os.system(ChModSshDir) != 0:
-        return None
-    if os.system(ChModAuthFile) != 0:
-        return None
-    if os.system(ChOwnAuthFile) != 0:
-        return None
-
-    return SshDir
-
-
-
-def does_user_exist(UserName, Uid, Gid, HomeDir):
-    # user has been created
-    try:
-        SysUid = getpwnam(UserName).pw_uid
-        SysGid = getpwnam(UserName).pw_gid
-        SysHomeDir = getpwnam(UserName).pw_dir
-        UidOk =  (SysUid == Uid)
-        GidOk = (SysGid == Gid)
-        DirOk = (SysHomeDir == HomeDir)
-        return UidOk and GidOk and DirOk
-    except Exception:
-        return False
-
-
 def id_generator(size=16, chars=string.ascii_uppercase + string.digits+string.ascii_lowercase):
     return ''.join(random.choice(chars) for _ in range(size))
 
+def is_allowed_loa(Loa):
+    if Loa in ALLOWED_LOA:
+        return True
+    return False
 
-def lookupPosix(UserId):
-    if OVERRIDE_USER_NAME:
-        # override username, uid, gid and homedir in DEMO mode
-        UserName = "{{runner_user}}"
-        Uid = getpwnam(UserName).pw_uid
-        Gid = getpwnam(UserName).pw_gid
-        HomeDir = getpwnam(UserName).pw_dir
-        return (UserName, Uid, Gid, HomeDir)
+def ensure_group_list(MaybeGroups):
+    if type(MaybeGroups) is str:
+        Groups=parse_group_string(MaybeGroups)
+        return Groups
+    if type(MaybeGroups) is unicode:
+        Groups=parse_group_string(MaybeGroups)
+        return Groups
+    if type(MaybeGroups) is list:
+        return MaybeGroups
     else:
-        # need to consult a mapping file
-        # TODO
-        return False
+        return []
 
+def parse_group_string(GroupString):
+    RawGroups = GroupString.split(',')
+    Groups = []
+    for Group in RawGroups:
+        Groups.append(Group.strip())
+    return Groups
+
+def get_loa(Oidc):
+    Loa = ""
+    if 'acr' in Oidc:
+        Loa = Oidc['acr']
+    return Loa
+
+def get_groups(Oidc):
+    Groups = []
+    if 'groups' in Oidc:
+        Groups = ensure_group_list(Oidc['groups'])
+    return Groups
 
 
 def main():
+    UserMsg = "Internal error, please contact the administrator"
     try:
         Cmd = None
         if len(sys.argv) == 2:
             Json = str(sys.argv[1])+ '=' * (4 - len(sys.argv[1]) % 4)
             JObject = json.loads(str(base64.urlsafe_b64decode(Json)))
 
-            #get the action to perform
+            #general information
             Action = JObject['action']
-
             if Action == "parameter":
                 print list_params()
 
@@ -228,30 +241,43 @@ def main():
                 State = JObject['cred_state']
                 Params = JObject['params']
                 ConfParams = JObject['conf_params']
+                UserId = JObject['watts_userid']
 
-                STATE_PREFIX=ConfParams['state_prefix']
-                OVERRIDE_USER_NAME=ConfParams['override_user_name']
-                FULL_ACCESS=ConfParams['full_access']
+                Prefix=ConfParams['state_prefix']
+                WorkDir=ConfParams['work_dir']
+                Hosts=ConfParams['host_list'].split()
+                CheckLoa=ConfParams['check_loa']
 
                 UserInfo = JObject['user_info']
-                UserId = UserInfo['userid']
-                Issuer = UserInfo['iss']
                 Subject = UserInfo['sub']
+                Issuer = UserInfo['iss']
+                Groups = get_groups(UserInfo)
+                Loa = get_loa(UserInfo)
 
-                (UserName, Uid, Gid, HomeDir) = lookupPosix(UserId)
 
+                if len(Hosts) == 0 :
+                    LogMsg = "the plugin has no hosts configured, use the 'host_list' parameter"
+                    print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
+                elif Action == "request":
+                    if is_allowed_loa(Loa) or not CheckLoa:
+                        print create_ssh(UserId, Params, Hosts, Prefix, WorkDir)
+                    else:
+                        LogMsg = "user %s - %s with loa %s is not allowed"%(Issuer, Subject, Loa)
+                        UserMsg = "sorry, your level of assurance (loa) is too low"
+                        print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
 
-                if Action == "request":
-                    print create_ssh(UserName, Uid, Gid, HomeDir, Params)
                 elif Action == "revoke":
-                    print revoke_ssh(UserName, Uid, Gid, HomeDir, State)
+                    print revoke_ssh(UserId, State, Hosts)
                 else:
-                    print json.dumps({"error":"unknown_action", "details":Action})
+                    LogMsg = "the plugin was run with an unknown action '%s'"%Action
+                    print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
         else:
-            print json.dumps({"error":"no_parameter"})
+            LogMsg = "the plugin was run without an action"
+            print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
     except Exception, E:
         TraceBack = traceback.format_exc(),
-        print json.dumps({"error":"exception", "details": str(E), "trace":TraceBack})
+        LogMsg = "the plugin failed with %s - %s"%(str(E), TraceBack)
+        print json.dumps({'result':'error', 'user_msg':UserMsg, 'log_msg':LogMsg})
         pass
 
 if __name__ == "__main__":
