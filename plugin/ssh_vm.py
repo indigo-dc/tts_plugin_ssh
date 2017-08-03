@@ -8,21 +8,26 @@ import os
 import traceback
 from pwd import getpwnam
 
+SSHMAPFILE="/home/watts/.config/watts/ssh_map"
 
-def insert_ssh_key(UserName, CreateUser, IsDefault, InKey, State):
+def insert_ssh_key(UserName, UserId, CreateUser, IsDefault, InKey, State):
     UserExists = does_user_exist(UserName)
     if (not UserExists) and CreateUser:
         # create the user
+        Create = "sudo create_user.py %s hdfuser %s" % (UserId, SSHMAPFILE)
+        Res = os.system(Create)
+        if Res != 0:
+            return json.dumps(
+                {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg % (Copy, Res)})
+        UserName = lookupPosix(UserId)
+        UserExists = does_user_exist(UserName)
 
-
-    if not UserExists:
+    elif not UserExists:
         # dear admin, this is not the problem of watts
         LogMsg = "user %s does not exist and should not be created" % UserName
         UserMsg = "user does not exist, please contact the administrator"
         return json.dumps(
             {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
-
-
 
     HomeDir = get_homedir(UserName)
     SshDir = create_ssh_dir(UserName, HomeDir)
@@ -149,24 +154,18 @@ def create_ssh_dir(UserName, HomeDir):
 
 def does_user_exist(UserName):
     # user has been created
-    try:
-        return True
-    except Exception:
-        return False
+    not (UserName == None)
 
 
 def lookupPosix(UserId):
-    File = open("/home/watts/.config/watts/ssh_map")
-    Result = (None, False)
+    File = open(SSHMAPFILE)
     for Line in File:
         Entries = Line.split()
-        if len(Entries) == 2 and Entries[0] == UserId:
+        if len(Entries) == 3 and Entries[0] == UserId:
             File.close()
-            return (Entries[1], False)
-        elif len(Entries) == 2 and Entries[0] == "default":
-            Result = (Entries[1], True)
+            return Entries[1]
     File.close()
-    return Result
+    return None
 
 
 def main():
@@ -184,7 +183,7 @@ def main():
                 State = JObject['cred_state']
                 Params = JObject['params']
                 UserId = JObject['watts_userid']
-                (UserName, IsDefault) = lookupPosix(UserId, CreateUser)
+                UserName = lookupPosix(UserId)
                 if UserName is None:
                     UserMsg = "username was not found, seems like you are not supported"
                     LogMsg = "no mapping for userid '%s'" % UserId
@@ -197,7 +196,7 @@ def main():
                     PubKey = Params['pub_key']
                     InState = Params['state']
                     CreateUser = Params['create_user']
-                    print insert_ssh_key(UserName, CreateUser, IsDefault, PubKey, InState)
+                    print insert_ssh_key(UserName, UserId, CreateUser, IsDefault, PubKey, InState)
                 elif Action == "revoke":
                     print revoke_ssh(UserName, State)
                 else:
