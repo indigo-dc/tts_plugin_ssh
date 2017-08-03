@@ -10,9 +10,6 @@ import string
 import random
 from subprocess import check_output as qx
 
-ALLOWED_LOA = ["https://aai.egi.eu/LoA#Substantial"]
-CREATE_USER = "/usr/bin/sudo /home/tts/bin/create_user.py"
-
 
 def list_params():
     RequestParams = [[{'key': 'pub_key', 'name': 'public key',
@@ -21,9 +18,8 @@ def list_params():
     ConfParams = [
         {'name': 'state_prefix', 'type': 'string', 'default': 'TTS_'},
         {'name': 'host_list', 'type': 'string', 'default': ''},
-        {'name': 'check_loa', 'type': 'boolean', 'default': 'true'},
         {'name': 'work_dir', 'type': 'string',
-         'default': '/home/tts/.config/tts/ssh/'}]
+         'default': '/home/watts/.config/watts/plugin_ssh/'}]
     Version = "0.1.0"
     return json.dumps({'result': 'ok',
                        'conf_params': ConfParams,
@@ -221,12 +217,6 @@ def id_generator(
     return ''.join(random.choice(chars) for _ in range(size))
 
 
-def is_allowed_loa(Loa):
-    if Loa in ALLOWED_LOA:
-        return True
-    return False
-
-
 def ensure_group_list(MaybeGroups):
     if isinstance(MaybeGroups, str):
         Groups = parse_group_string(MaybeGroups)
@@ -294,16 +284,7 @@ def main():
                     LogMsg = "the plugin has no hosts configured, use the 'host_list' parameter"
                     print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
                 elif Action == "request":
-                    if is_allowed_loa(Loa) or not CheckLoa:
-                        print create_ssh(UserId, Params, Hosts, Prefix, WorkDir)
-                    else:
-                        LogMsg = "user %s - %s with loa %s is not allowed" % (
-                                                                              Issuer,
-                                                                              Subject,
-                                                                              Loa)
-                        UserMsg = "sorry, your level of assurance (loa) is too low"
-                        print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
-
+                    print create_ssh(UserId, Params, Hosts, Prefix, WorkDir)
                 elif Action == "revoke":
                     print revoke_ssh(UserId, State, Hosts)
                 else:
