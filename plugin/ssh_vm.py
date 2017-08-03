@@ -9,14 +9,20 @@ import traceback
 from pwd import getpwnam
 
 
-def insert_ssh_key(UserName, IsDefault, InKey, State):
+def insert_ssh_key(UserName, CreateUser, IsDefault, InKey, State):
     UserExists = does_user_exist(UserName)
+    if (not UserExists) and CreateUser:
+        # create the user
+
+
     if not UserExists:
-        # dear admin, this is not the problem of tts
-        LogMsg = "user %s does not exist" % UserName
+        # dear admin, this is not the problem of watts
+        LogMsg = "user %s does not exist and should not be created" % UserName
         UserMsg = "user does not exist, please contact the administrator"
         return json.dumps(
             {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
+
+
 
     HomeDir = get_homedir(UserName)
     SshDir = create_ssh_dir(UserName, HomeDir)
@@ -150,7 +156,7 @@ def does_user_exist(UserName):
 
 
 def lookupPosix(UserId):
-    File = open("/home/tts/.config/tts/ssh_map")
+    File = open("/home/watts/.config/watts/ssh_map")
     Result = (None, False)
     for Line in File:
         Entries = Line.split()
@@ -178,7 +184,7 @@ def main():
                 State = JObject['cred_state']
                 Params = JObject['params']
                 UserId = JObject['watts_userid']
-                (UserName, IsDefault) = lookupPosix(UserId)
+                (UserName, IsDefault) = lookupPosix(UserId, CreateUser)
                 if UserName is None:
                     UserMsg = "username was not found, seems like you are not supported"
                     LogMsg = "no mapping for userid '%s'" % UserId
@@ -190,7 +196,8 @@ def main():
                 elif Action == "request":
                     PubKey = Params['pub_key']
                     InState = Params['state']
-                    print insert_ssh_key(UserName, IsDefault, PubKey, InState)
+                    CreateUser = Params['create_user']
+                    print insert_ssh_key(UserName, CreateUser, IsDefault, PubKey, InState)
                 elif Action == "revoke":
                     print revoke_ssh(UserName, State)
                 else:

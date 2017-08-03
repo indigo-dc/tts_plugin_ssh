@@ -18,6 +18,7 @@ def list_params():
     ConfParams = [
         {'name': 'state_prefix', 'type': 'string', 'default': 'TTS_'},
         {'name': 'host_list', 'type': 'string', 'default': ''},
+        {'name': 'create_user', 'type': 'boolean', 'default': 'false'},
         {'name': 'work_dir', 'type': 'string',
          'default': '/home/watts/.config/watts/plugin_ssh/'}]
     Version = "0.1.0"
@@ -29,16 +30,16 @@ def list_params():
 
 def create_ssh(UserId, Params, Hosts, Prefix, WorkDir):
     if 'pub_key' in Params:
-        return insert_ssh_key(UserId, Params['pub_key'], Hosts, Prefix)
+        return insert_ssh_key(UserId, CreateUser, Params['pub_key'], Hosts, Prefix)
     else:
-        return create_ssh_for(UserId, Hosts, Prefix, WorkDir)
+        return create_ssh_for(UserId, CreateUser, Hosts, Prefix, WorkDir)
 
 
 def revoke_ssh(UserId, State, Hosts):
     return delete_ssh_for(UserId, State, Hosts)
 
 
-def create_ssh_for(UserId, Hosts, Prefix, BaseWorkDir):
+def create_ssh_for(UserId, CreateUser, Hosts, Prefix, BaseWorkDir):
     Password = id_generator()
     State = "%s%s" % (Prefix, id_generator(32))
     # maybe change this to random/temp file
@@ -87,7 +88,7 @@ def create_ssh_for(UserId, Hosts, Prefix, BaseWorkDir):
      'value': Password}
     Credential = [PrivKeyObj, PasswdObj, PubKeyObj]
 
-    HostResult = deploy_key(UserId, PubKey, State, Hosts)
+    HostResult = deploy_key(UserId, PubKey, State, CreateUser, Hosts)
     if HostResult['result'] == 'ok':
         HostCredential = HostResult['output']
         Credential.extend(HostCredential)
@@ -103,7 +104,7 @@ def create_ssh_for(UserId, Hosts, Prefix, BaseWorkDir):
         {'result': 'ok', 'credential': Credential, 'state': State})
 
 
-def insert_ssh_key(UserId, InKey, Hosts, Prefix):
+def insert_ssh_key(UserId, CreateUser, InKey, Hosts, Prefix):
     State = "%s%s" % (Prefix, id_generator(32))
     PubKey = validate_and_update_key(InKey, State)
     if PubKey is None:
@@ -112,7 +113,7 @@ def insert_ssh_key(UserId, InKey, Hosts, Prefix):
         return json.dumps(
             {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
-    Result = deploy_key(UserId, PubKey, State, Hosts)
+    Result = deploy_key(UserId, PubKey, State, CreateUser Hosts)
     if Result['result'] == 'ok':
         Credential = Result['output']
         return json.dumps(
@@ -140,10 +141,10 @@ def validate_and_update_key(Key, State):
     return "%s %s %s" % (KeyType, PubKey, State)
 
 
-def deploy_key(UserId, Key, State, Hosts):
+def deploy_key(UserId, Key, State, CreateUser, Hosts):
     Json = json.dumps(
         {'action': 'request', 'watts_userid': UserId, 'cred_state': 'undefined',
-         'params': {'state': State, 'pub_key': Key}})
+         'params': {'state': State, 'pub_key': Key, 'create_user': CreateUser}})
     Parameter = base64.urlsafe_b64encode(Json)
     Result = execute_on_hosts(Parameter, Hosts)
     Output = []
@@ -170,7 +171,7 @@ def delete_ssh_for(UserId, State, Hosts):
     Json = json.dumps({'action': 'revoke',
                        'watts_userid': UserId,
                        'cred_state': State,
-                       'params': ''})
+                       'params': {'create_user': False}})
     Parameter = base64.urlsafe_b64encode(Json)
     Result = execute_on_hosts(Parameter, Hosts)
     OkCount = 0
