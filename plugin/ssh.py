@@ -16,9 +16,10 @@ def list_params():
                        'description': 'the public key to upload to the service',
                        'type': 'textarea', 'mandatory': True}], []]
     ConfParams = [
-        {'name': 'state_prefix', 'type': 'string', 'default': 'TTS_'},
+        {'name': 'state_prefix', 'type': 'string', 'default': 'WATTS_'},
         {'name': 'host_list', 'type': 'string', 'default': ''},
         {'name': 'create_user', 'type': 'boolean', 'default': 'false'},
+        {'name': 'user_prefix', 'type': 'string', 'default': 'wattsuser'},
         {'name': 'work_dir', 'type': 'string',
          'default': '/home/watts/.config/watts/plugin_ssh/'}]
     Version = "0.1.0"
@@ -28,18 +29,18 @@ def list_params():
                        'version': Version})
 
 
-def create_ssh(UserId, Params, Hosts, Prefix, WorkDir):
+def create_ssh(UserId, CreateUser, UserPrefix, Params, Hosts, Prefix, WorkDir):
     if 'pub_key' in Params:
-        return insert_ssh_key(UserId, CreateUser, Params['pub_key'], Hosts, Prefix)
+        return insert_ssh_key(UserId, CreateUser, UserPrefix, Params['pub_key'], Hosts, Prefix)
     else:
-        return create_ssh_for(UserId, CreateUser, Hosts, Prefix, WorkDir)
+        return create_ssh_for(UserId, CreateUser, UserPrefix, Hosts, Prefix, WorkDir)
 
 
 def revoke_ssh(UserId, State, Hosts):
     return delete_ssh_for(UserId, State, Hosts)
 
 
-def create_ssh_for(UserId, CreateUser, Hosts, Prefix, BaseWorkDir):
+def create_ssh_for(UserId, CreateUser, UserPrefix, Hosts, Prefix, BaseWorkDir):
     Password = id_generator()
     State = "%s%s" % (Prefix, id_generator(32))
     # maybe change this to random/temp file
@@ -88,7 +89,7 @@ def create_ssh_for(UserId, CreateUser, Hosts, Prefix, BaseWorkDir):
      'value': Password}
     Credential = [PrivKeyObj, PasswdObj, PubKeyObj]
 
-    HostResult = deploy_key(UserId, PubKey, State, CreateUser, Hosts)
+    HostResult = deploy_key(UserId, PubKey, State, CreateUser, UserPrefix, Hosts)
     if HostResult['result'] == 'ok':
         HostCredential = HostResult['output']
         Credential.extend(HostCredential)
@@ -104,7 +105,7 @@ def create_ssh_for(UserId, CreateUser, Hosts, Prefix, BaseWorkDir):
         {'result': 'ok', 'credential': Credential, 'state': State})
 
 
-def insert_ssh_key(UserId, CreateUser, InKey, Hosts, Prefix):
+def insert_ssh_key(UserId, CreateUser, UserPrefix, InKey, Hosts, Prefix):
     State = "%s%s" % (Prefix, id_generator(32))
     PubKey = validate_and_update_key(InKey, State)
     if PubKey is None:
@@ -113,7 +114,7 @@ def insert_ssh_key(UserId, CreateUser, InKey, Hosts, Prefix):
         return json.dumps(
             {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
-    Result = deploy_key(UserId, PubKey, State, CreateUser Hosts)
+    Result = deploy_key(UserId, PubKey, State, CreateUser, UserPrefix, Hosts)
     if Result['result'] == 'ok':
         Credential = Result['output']
         return json.dumps(
@@ -141,10 +142,12 @@ def validate_and_update_key(Key, State):
     return "%s %s %s" % (KeyType, PubKey, State)
 
 
-def deploy_key(UserId, Key, State, CreateUser, Hosts):
+def deploy_key(UserId, Key, State, CreateUser, UserPrefix, Hosts):
     Json = json.dumps(
         {'action': 'request', 'watts_userid': UserId, 'cred_state': 'undefined',
-         'params': {'state': State, 'pub_key': Key, 'create_user': CreateUser}})
+         'params': {'state': State, 'pub_key': Key, 'create_user': CreateUser,
+                    'user_prefix' : UserPrefix }
+        })
     Parameter = base64.urlsafe_b64encode(Json)
     Result = execute_on_hosts(Parameter, Hosts)
     Output = []
@@ -192,10 +195,10 @@ def delete_ssh_for(UserId, State, Hosts):
 
 def execute_on_hosts(Parameter, Hosts):
     # loop through all server and collect the output
-    Cmd = "sudo /home/tts/.config/tts/ssh_vm.py %s" % Parameter
+    Cmd = "sudo /home/watts/.config/watts/ssh_vm.py %s" % Parameter
     Result = []
     for Host in Hosts:
-        UserHost = "tts@%s" % Host
+        UserHost = "watts@%s" % Host
         Output = qx(["ssh", UserHost, Cmd])
         Json = json.loads(Output)
         Json['host'] = Host
@@ -274,7 +277,8 @@ def main():
                 Prefix = ConfParams['state_prefix']
                 WorkDir = ConfParams['work_dir']
                 Hosts = ConfParams['host_list'].split()
-                CheckLoa = ConfParams['check_loa']
+                CreateUser = ConfParams['create_user']
+                UserPrefix = ConfParams['user_prefix']
 
                 UserInfo = JObject['user_info']
                 Subject = UserInfo['sub']
@@ -285,7 +289,7 @@ def main():
                     LogMsg = "the plugin has no hosts configured, use the 'host_list' parameter"
                     print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
                 elif Action == "request":
-                    print create_ssh(UserId, Params, Hosts, Prefix, WorkDir)
+                    print create_ssh(UserId, CreateUser, UserPrefix, Params, Hosts, Prefix, WorkDir)
                 elif Action == "revoke":
                     print revoke_ssh(UserId, State, Hosts)
                 else:

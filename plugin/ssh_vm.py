@@ -10,15 +10,17 @@ from pwd import getpwnam
 
 SSHMAPFILE="/home/watts/.config/watts/ssh_map"
 
-def insert_ssh_key(UserName, UserId, CreateUser, IsDefault, InKey, State):
+def insert_ssh_key(UserName, UserId, CreateUser, UserPrefix, InKey, State):
     UserExists = does_user_exist(UserName)
     if (not UserExists) and CreateUser:
         # create the user
-        Create = "sudo create_user.py %s hdfuser %s" % (UserId, SSHMAPFILE)
+        Create = "cd /home/watts/.config/watts/ && sudo ./create_user.py %s %s %s" % (UserId, UserPrefix, SSHMAPFILE)
         Res = os.system(Create)
+        LogMsg = "creation of user %s failed with: %s "
+        UserMsg = "user creation failed, please contact the administrator"
         if Res != 0:
             return json.dumps(
-                {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg % (Copy, Res)})
+                {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg % (UserId, Res)})
         UserName = lookupPosix(UserId)
         UserExists = does_user_exist(UserName)
 
@@ -44,7 +46,7 @@ def insert_ssh_key(UserName, UserId, CreateUser, IsDefault, InKey, State):
         return json.dumps(
             {'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
 
-    do_insert_key(SshDir, Key, IsDefault)
+    do_insert_key(SshDir, Key)
     UserNameObj = {'name': 'Username', 'type': 'text', 'value': UserName}
     Credential = [UserNameObj]
     return json.dumps(
@@ -83,12 +85,9 @@ def validate_and_update_key(Key, State):
     return "%s %s %s" % (KeyType, PubKey, State)
 
 
-def do_insert_key(SshDir, Key, IsDefault):
+def do_insert_key(SshDir, Key):
     AuthorizedFile = os.path.join(SshDir, "authorized_keys")
-    Prepend = 'command="cat /etc/tts/ssh.msg",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty '
-    if not IsDefault:
-        Prepend = 'no-port-forwarding,no-X11-forwarding,no-agent-forwarding '
-
+    Prepend = 'no-port-forwarding,no-X11-forwarding,no-agent-forwarding '
     Cmd = "echo '%s %s' >> %s" % (Prepend, Key, AuthorizedFile)
     os.system(Cmd)
 
@@ -153,8 +152,17 @@ def create_ssh_dir(UserName, HomeDir):
 
 
 def does_user_exist(UserName):
-    # user has been created
-    not (UserName == None)
+    if UserName == None:
+        return False
+
+    File = open(SSHMAPFILE)
+    for Line in File:
+        Entries = Line.split()
+        if len(Entries) == 3 and Entries[1] == UserName:
+            File.close()
+            return True
+    File.close()
+    return False
 
 
 def lookupPosix(UserId):
@@ -184,11 +192,7 @@ def main():
                 Params = JObject['params']
                 UserId = JObject['watts_userid']
                 UserName = lookupPosix(UserId)
-                if UserName is None:
-                    UserMsg = "username was not found, seems like you are not supported"
-                    LogMsg = "no mapping for userid '%s'" % UserId
-                    print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
-                elif UserName == 'root':
+                if UserName == 'root':
                     UserMsg = "username was not found, seems like you are not supported"
                     LogMsg = "not supporting mapping to root: '%s'" % UserId
                     print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
@@ -196,7 +200,13 @@ def main():
                     PubKey = Params['pub_key']
                     InState = Params['state']
                     CreateUser = Params['create_user']
-                    print insert_ssh_key(UserName, UserId, CreateUser, IsDefault, PubKey, InState)
+                    UserPrefix = Params['user_prefix']
+                    if UserName is None and not CreateUser:
+                        UserMsg = "username was not found, seems like you are not supported"
+                        LogMsg = "no mapping for userid '%s'" % UserId
+                        print json.dumps({'result': 'error', 'user_msg': UserMsg, 'log_msg': LogMsg})
+                    else:
+                        print insert_ssh_key(UserName, UserId, CreateUser, UserPrefix, PubKey, InState)
                 elif Action == "revoke":
                     print revoke_ssh(UserName, State)
                 else:
