@@ -200,9 +200,15 @@ def execute_on_hosts(Parameter, Hosts):
     for Host in Hosts:
         UserHost = "watts@%s" % Host
         Output = qx(["ssh", UserHost, Cmd])
-        Json = json.loads(Output)
-        Json['host'] = Host
-        Result.append(Json)
+        try:
+            Json = json.loads(Output)
+            Json['host'] = Host
+            Result.append(Json)
+        except:
+            UserMsg = "Internal error, please contact the administrator"
+            LogMsg = "no json result: %s"%Output
+            Result.append({'result':'error', 'host':Host, 'user_msg': UserMsg, 'log_msg':LogMsg})
+
     return Result
 
 

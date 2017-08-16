@@ -5,17 +5,20 @@ import json
 import base64
 import sys
 import os
+import subprocess
 import traceback
 from pwd import getpwnam
 
-SSHMAPFILE="/home/watts/.config/watts/ssh_map"
+MAPFILE="/home/watts/.config/watts/watts.map"
+MAPCMD="/home/watts/.config/watts/watts-mapfile.py"
 
 def insert_ssh_key(UserName, UserId, CreateUser, UserPrefix, InKey, State):
     UserExists = does_user_exist(UserName)
     if (not UserExists) and CreateUser:
         # create the user
-        Create = "cd /home/watts/.config/watts/ && sudo ./create_user.py %s %s %s" % (UserId, UserPrefix, SSHMAPFILE)
-        Res = os.system(Create)
+        DevNull = open("/dev/null","a")
+        Res = subprocess.call(["sudo", MAPCMD, "addcreate", UserId, UserPrefix, MAPFILE], stdout=DevNull, stderr=DevNull)
+        DevNull.close()
         LogMsg = "creation of user %s failed with: %s "
         UserMsg = "user creation failed, please contact the administrator"
         if Res != 0:
@@ -155,24 +158,16 @@ def does_user_exist(UserName):
     if UserName == None:
         return False
 
-    File = open(SSHMAPFILE)
-    for Line in File:
-        Entries = Line.split()
-        if len(Entries) == 3 and Entries[1] == UserName:
-            File.close()
-            return True
-    File.close()
-    return False
+    DevNull = open("/dev/null","a")
+    Res = subprocess.call([MAPCMD, "wattsid", UserName, MAPFILE], stdout=DevNull, stderr=DevNull)
+    DevNull.close()
+    return Res == 0
 
 
 def lookupPosix(UserId):
-    File = open(SSHMAPFILE)
-    for Line in File:
-        Entries = Line.split()
-        if len(Entries) == 3 and Entries[0] == UserId:
-            File.close()
-            return Entries[1]
-    File.close()
+    Result = subprocess.check_output([MAPCMD, "lookup", UserId, MAPFILE])
+    if len(Result) > 1:
+        return Result.rstrip()
     return None
 
 
