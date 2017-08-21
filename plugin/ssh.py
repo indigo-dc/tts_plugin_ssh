@@ -197,8 +197,8 @@ def execute_on_hosts(Parameter, Hosts):
     # loop through all server and collect the output
     Cmd = "sudo /home/watts/.config/watts/ssh_vm.py %s" % Parameter
     Result = []
-    for Host in Hosts:
-        UserHost = "watts@%s" % Host
+    for UserHost in Hosts:
+        Host = UserHost.split("@")[1]
         Output = qx(["ssh", UserHost, Cmd])
         try:
             Json = json.loads(Output)
